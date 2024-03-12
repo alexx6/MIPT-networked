@@ -31,6 +31,15 @@ std::string getData(char* data)
     return res;
 }
 
+void logPlayerPosition(std::string playerName, std::string data)
+{
+    float x;
+    float y;
+    std::memcpy(&x, data.data(), sizeof(float));
+    std::memcpy(&y, data.data() + sizeof(float), sizeof(float));
+    std::cout << playerName << " UPDATED POSITION IS (" + std::to_string(x) + ", " + std::to_string(y) + ")" << std::endl;
+}
+
 void logPacket(GameEvent header, std::string data, ENetPeer* ep)
 {
     std::cout << "Event type: ";
@@ -40,6 +49,9 @@ void logPacket(GameEvent header, std::string data, ENetPeer* ep)
     case GameEvent::START_GAME:
         std::cout << "START_GAME ";
         break;
+    case GameEvent::PLAYER_POSITION_SEND:
+        logPlayerPosition(gameClients.at(ep->address.port), data);
+        return;
     }
 
     std::cout << "FROM " << ep->address.host << ":" << ep->address.port << std::endl;
@@ -63,20 +75,6 @@ void send_player_join(ENetPeer* ep)
     }
 }
 
-void send_player_disconnect(ENetPeer* ep)
-{
-    return;
-    for (const auto& c : clients)
-    {
-        if (c->address.port == ep->address.port)
-            continue;
-
-        std::string msg = buildMessage(GameEvent::PLAYER_JOIN_SEND, gameClients.at(ep->address.port));
-        ENetPacket* packet = enet_packet_create(msg.data(), msg.length() + 1, ENET_PACKET_FLAG_RELIABLE);
-        enet_peer_send(c, 0, packet);
-    }
-}
-
 void send_player_list(ENetPeer* ep)
 {
     std::string pl = "";
@@ -88,27 +86,25 @@ void send_player_list(ENetPeer* ep)
     std::string msg = buildMessage(GameEvent::PLAYER_LIST_SEND, pl);
     ENetPacket* packet = enet_packet_create(msg.data(), msg.length() + 1, ENET_PACKET_FLAG_RELIABLE);
     enet_peer_send(ep, 0, packet);
+};
+
+void broadcast_ping_list()
+{
+    std::string pl = "";
+
+    for (const auto& c : clients)
+    {
+        pl += gameClients.at(c->address.port) + ":" + std::to_string(c->roundTripTime) + ",";
+    }
+
+    std::string msg = buildMessage(GameEvent::PING_LIST_BROADCAST, pl);
+    ENetPacket* packet = enet_packet_create(msg.data(), msg.length() + 1, ENET_PACKET_FLAG_UNSEQUENCED);
+    enet_host_broadcast(server, 1, packet);
 }
 
 void processPacket(GameEvent header, std::string data, ENetPeer* ep)
 {
     logPacket(header, data, ep);
-
-    /*switch (header)
-    {
-    case GameEvent::START_GAME:
-        if (gameState == NOT_STARTED)
-        {
-            broadcast_game_address();
-            gameState = STARTED;
-        }
-        else
-        {
-            send_game_address(ep);
-        }
-        break;
-    }*/
-
 }
 
 int main(int argc, const char** argv)
@@ -131,6 +127,8 @@ int main(int argc, const char** argv)
         return 1;
     }
 
+    uint32_t lastUpdateSent = enet_time_get();
+
     while (true)
     {
         ENetEvent event;
@@ -146,10 +144,6 @@ int main(int argc, const char** argv)
                 send_player_list(event.peer);
                 send_player_join(event.peer);
                 break;
-            case ENET_EVENT_TYPE_DISCONNECT:
-                printf("Connection with %x:%u lost\n", event.peer->address.host, event.peer->address.port);
-                send_player_disconnect(event.peer);
-                break;
             case ENET_EVENT_TYPE_RECEIVE:
                 //printf("Packet received '%s'\n", event.packet->data);
                 processPacket(getHeader((char*)event.packet->data), getData((char*)event.packet->data), event.peer);
@@ -160,7 +154,15 @@ int main(int argc, const char** argv)
             };
         }
 
-
+        if (!clients.empty())
+        {
+            uint32_t curTime = enet_time_get();
+            if (curTime - lastUpdateSent > 1000)
+            {
+                lastUpdateSent = curTime;
+                broadcast_ping_list();
+            }
+        }
     }
 
     enet_host_destroy(server);

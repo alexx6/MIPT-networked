@@ -16,7 +16,7 @@ enum ClientState
 ENetHost* client;
 ClientState clientState = DISCONNECTED;
 ENetPeer* gameServer = nullptr;
-std::unordered_map<std::string, float> playerPings;
+std::unordered_map<std::string, int> playerPings;
 
 void gameServerConnect(std::string addressData)
 {
@@ -78,7 +78,7 @@ void processPlayerList(std::string data)
     int d = data.find(',', sp);
     while (d <= data.length() - 1)
     {
-        playerPings.emplace(data.substr(sp, d - sp), 0.0f);
+        playerPings.emplace(data.substr(sp, d - sp), 0);
         sp += d - sp + 1;
         d = data.find(',', sp);
     }
@@ -102,13 +102,28 @@ void logPacket(GameEvent header, std::string data)
     case GameEvent::PLAYER_LIST_SEND:
         std::cout << "PLAYER_LIST_SEND" << std::endl;
         std::cout << data << std::endl;
-        processPlayerList(data);
         break;
     case GameEvent::PLAYER_JOIN_SEND:
         std::cout << "PLAYER_JOIN_SEND" << std::endl;
         std::cout << data << std::endl;
-        playerPings.emplace(data, 0.0f);
         break;
+    case GameEvent::PING_LIST_BROADCAST:
+        std::cout << "PING_LIST_BROADCAST" << std::endl;
+        std::cout << data << std::endl;
+        break;
+    }
+}
+
+void processPingList(std::string data)
+{
+    int sp = 0;
+    int d = data.find(',', sp);
+    while (d <= data.length() - 1)
+    {
+        std::string data1 = data.substr(sp, d - sp);
+        playerPings.at(data1.substr(0, data1.find(':'))) = std::atoi(data1.substr(data1.find(':') + 1).data());
+        sp += d - sp + 1;
+        d = data.find(',', sp);
     }
 }
 
@@ -122,12 +137,18 @@ void processPacket(GameEvent header, std::string data)
         clientState = CONNECTING_TO_GAME;
         gameServerConnect(data);
         break;
-
     case GameEvent::GAME_ADDRESS_SEND:
         clientState = CONNECTING_TO_GAME;
         gameServerConnect(data);
         break;
     case GameEvent::PLAYER_LIST_SEND:
+        processPlayerList(data);
+        break;
+    case GameEvent::PLAYER_JOIN_SEND:
+        playerPings.emplace(data, 0.0f);
+        break;
+    case GameEvent::PING_LIST_BROADCAST:
+        processPingList(data);
         break;
     }
 }
@@ -149,11 +170,13 @@ void send_fragmented_packet(ENetPeer *peer)
   delete[] hugeMessage;
 }
 
-void send_micro_packet(ENetPeer *peer)
+void send_player_position(float x, float y)
 {
-  const char *msg = "dv/dt";
-  ENetPacket *packet = enet_packet_create(msg, strlen(msg) + 1, ENET_PACKET_FLAG_UNSEQUENCED);
-  enet_peer_send(peer, 1, packet);
+  std::string msg = buildMessage(GameEvent::PLAYER_POSITION_SEND, std::string(sizeof(float) * 2, '\0'));
+  std::memcpy(msg.data() + sizeof(GameEvent), &x, sizeof(float));
+  std::memcpy(msg.data() + sizeof(GameEvent) + sizeof(float), &y, sizeof(float));
+  ENetPacket *packet = enet_packet_create(msg.data(), msg.length() + 1, ENET_PACKET_FLAG_UNSEQUENCED);
+  enet_peer_send(gameServer, 1, packet);
 }
 
 void send_start_packet(ENetPeer* peer)
@@ -247,18 +270,6 @@ int main(int argc, const char **argv)
     }
     if (connected)
     {
-      uint32_t curTime = enet_time_get();
-      //if (curTime - lastFragmentedSendTime > 1000)
-      //{
-      //  lastFragmentedSendTime = curTime;
-      //  send_fragmented_packet(lobbyPeer);
-      //}
-      //if (curTime - lastMicroSendTime > 100)
-      //{
-      //  lastMicroSendTime = curTime;
-      //  send_micro_packet(lobbyPeer);
-      //}
-
       if (clientState == LOBBY && IsKeyDown(KEY_ENTER))
       {
           send_start_packet(lobbyPeer);
@@ -269,8 +280,14 @@ int main(int argc, const char **argv)
     bool up = IsKeyDown(KEY_UP);
     bool down = IsKeyDown(KEY_DOWN);
     constexpr float spd = 50.f;
+
     posx += ((left ? -1.f : 0.f) + (right ? 1.f : 0.f)) * dt * spd;
     posy += ((up ? -1.f : 0.f) + (down ? 1.f : 0.f)) * dt * spd;
+
+    if (gameServer && (left || right || up || down))
+    {
+        send_player_position(posx, posy);
+    }
 
     BeginDrawing();
       ClearBackground(BLACK);
@@ -280,7 +297,7 @@ int main(int argc, const char **argv)
       int c = 0;
       for (const auto& [k, v] : playerPings)
       {
-          DrawText(k.data(), 20, 80 + c * 20, 20, WHITE);
+          DrawText((k + " Ping: " + std::to_string(v) + " ms").c_str(), 20, 80 + c * 20, 20, WHITE);
           ++c;
       }
       DrawText("List of players:", 20, 60, 20, WHITE);
