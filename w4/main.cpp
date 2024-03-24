@@ -117,6 +117,7 @@ int main(int argc, const char **argv)
           on_snapshot(event.packet);
           break;
         };
+        enet_packet_destroy(event.packet);
         break;
       default:
         break;
