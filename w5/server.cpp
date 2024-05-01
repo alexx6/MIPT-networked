@@ -1,6 +1,6 @@
 #include <enet/enet.h>
 #include <iostream>
-#include "entity.h"
+#include "./entity.h"
 #include "protocol.h"
 #include "mathUtils.h"
 #include <stdlib.h>
@@ -118,7 +118,7 @@ int main(int argc, const char **argv)
       }
     }
 
-    Sleep(200);
+    Sleep(500);
   }
 
   enet_host_destroy(server);

@@ -49,21 +49,11 @@ public:
         duration = d;
     }
 
-    void interpolate(float t)
+    void interpolate(float dt)
     {
-        //std::cout << t << std::endl;
-        //std::cout << t << std::endl;
-        //ent.x += 1;
-
-        //if (t > duration && duration <= 0)
-        //    return;
-
-        //ent->x = initialX;
-        //ent->y = initialY;
-        //ent->ori = initialOri;
-        ent->x = initialX + (targetX - initialX) * t / duration;
-        ent->y = initialY + (targetY - initialY) * t / duration;
-        ent->ori = initialOri + (targetOri - initialOri) * t / duration;
+        ent->x += (targetX - initialX) * dt / duration;
+        ent->y += (targetY - initialY) * dt / duration;
+        ent->ori += (targetOri - initialOri) * dt / duration;
 
     }
 
@@ -102,14 +92,6 @@ void on_snapshot(ENetPacket *packet)
   uint16_t eid = invalid_entity;
   float x = 0.f; float y = 0.f; float ori = 0.f;
   deserialize_snapshot(packet, eid, x, y, ori);
-  // TODO: Direct adressing, of course!
-  //for (Entity* e : entities)
-  //  if (e->eid == eid)
-  //  {
-  //    e->x = x;
-  //    e->y = y;
-  //    e->ori = ori;
-  //  }
 
   for (Interpolator* i : interpolators)
       if (i->getEid() == eid)
@@ -220,13 +202,18 @@ int main(int argc, const char **argv)
           float thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
           float steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
 
+
           // Send
           send_entity_input(serverPeer, my_entity, thr, steer);
+
+          e->thr = thr;
+          e->steer = steer;
+          simulate_entity(*e, dt);
         }
     }
 
     for (Interpolator* i : interpolators)
-        i->interpolate(timeSinceSnapshot);
+        i->interpolate(dt);
 
     BeginDrawing();
       ClearBackground(GRAY);
