@@ -8,20 +8,88 @@
 #include <vector>
 #include "entity.h"
 #include "protocol.h"
+#include <iostream>
 
+class Interpolator;
 
-static std::vector<Entity> entities;
+std::vector<Entity*> entities;
+std::vector<Interpolator*> interpolators;
 static uint16_t my_entity = invalid_entity;
+float timeSinceSnapshot = 0;
+float snapshotDelay = 1000;
+
+class Interpolator
+{
+public:
+    Interpolator(Entity* e)
+    {
+        ent = e;
+
+        initialX = ent->x;
+        initialY = ent->y;
+        initialOri = ent->ori;
+
+        targetX = ent->x;
+        targetY = ent->y;
+        targetOri = ent->ori;
+
+        duration = 10000;
+    }
+
+    void updateInterpolation(float tX, float tY, float tOri, float d)
+    {
+        initialX = ent->x;
+        initialY = ent->y;
+        initialOri = ent->ori;
+
+        targetX = tX;
+        targetY = tY;
+        targetOri = tOri;
+
+        duration = d;
+    }
+
+    void interpolate(float t)
+    {
+        //std::cout << t << std::endl;
+        //std::cout << t << std::endl;
+        //ent.x += 1;
+
+        //if (t > duration && duration <= 0)
+        //    return;
+
+        //ent->x = initialX;
+        //ent->y = initialY;
+        //ent->ori = initialOri;
+        ent->x = initialX + (targetX - initialX) * t / duration;
+        ent->y = initialY + (targetY - initialY) * t / duration;
+        ent->ori = initialOri + (targetOri - initialOri) * t / duration;
+
+    }
+
+    uint16_t getEid()
+    {
+        return ent->eid;
+    }
+   
+private:
+    Entity* ent;
+    float duration;
+    float initialX, initialY, initialOri;
+    float targetX, targetY, targetOri;
+
+};
 
 void on_new_entity_packet(ENetPacket *packet)
 {
-  Entity newEntity;
-  deserialize_new_entity(packet, newEntity);
+  Entity* newEntity = new Entity();
+  deserialize_new_entity(packet, *newEntity);
   // TODO: Direct adressing, of course!
-  for (const Entity &e : entities)
-    if (e.eid == newEntity.eid)
+  for (const Entity* e : entities)
+    if (e->eid == newEntity->eid)
       return; // don't need to do anything, we already have entity
   entities.push_back(newEntity);
+  interpolators.push_back(new Interpolator(newEntity));
 }
 
 void on_set_controlled_entity(ENetPacket *packet)
@@ -35,13 +103,19 @@ void on_snapshot(ENetPacket *packet)
   float x = 0.f; float y = 0.f; float ori = 0.f;
   deserialize_snapshot(packet, eid, x, y, ori);
   // TODO: Direct adressing, of course!
-  for (Entity &e : entities)
-    if (e.eid == eid)
-    {
-      e.x = x;
-      e.y = y;
-      e.ori = ori;
-    }
+  //for (Entity* e : entities)
+  //  if (e->eid == eid)
+  //  {
+  //    e->x = x;
+  //    e->y = y;
+  //    e->ori = ori;
+  //  }
+
+  for (Interpolator* i : interpolators)
+      if (i->getEid() == eid)
+      {
+          i->updateInterpolation(x, y, ori, snapshotDelay);
+      }
 }
 
 int main(int argc, const char **argv)
@@ -94,9 +168,11 @@ int main(int argc, const char **argv)
   SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
 
   bool connected = false;
+
   while (!WindowShouldClose())
   {
     float dt = GetFrameTime();
+    timeSinceSnapshot += dt;
     ENetEvent event;
     while (enet_host_service(client, &event, 0) > 0)
     {
@@ -118,6 +194,11 @@ int main(int argc, const char **argv)
           break;
         case E_SERVER_TO_CLIENT_SNAPSHOT:
           on_snapshot(event.packet);
+
+          if (timeSinceSnapshot > 0)
+            snapshotDelay = timeSinceSnapshot;
+
+          timeSinceSnapshot = 0;
           break;
         };
         break;
@@ -132,8 +213,8 @@ int main(int argc, const char **argv)
       bool up = IsKeyDown(KEY_UP);
       bool down = IsKeyDown(KEY_DOWN);
       // TODO: Direct adressing, of course!
-      for (Entity &e : entities)
-        if (e.eid == my_entity)
+      for (Entity* e : entities)
+        if (e->eid == my_entity)
         {
           // Update
           float thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
@@ -144,13 +225,16 @@ int main(int argc, const char **argv)
         }
     }
 
+    for (Interpolator* i : interpolators)
+        i->interpolate(timeSinceSnapshot);
+
     BeginDrawing();
       ClearBackground(GRAY);
       BeginMode2D(camera);
-        for (const Entity &e : entities)
+        for (const Entity* e : entities)
         {
-          const Rectangle rect = {e.x, e.y, 3.f, 1.f};
-          DrawRectanglePro(rect, {0.f, 0.5f}, e.ori * 180.f / PI, GetColor(e.color));
+          const Rectangle rect = {e->x, e->y, 3.f, 1.f};
+          DrawRectanglePro(rect, {0.f, 0.5f}, e->ori * 180.f / PI, GetColor(e->color));
         }
 
       EndMode2D();
