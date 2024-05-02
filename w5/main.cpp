@@ -336,8 +336,11 @@ int main(int argc, const char **argv)
 
                 e->timeStamp = enet_time_get();
             }
+
+            simulate_entity(*e, dt);
         }
     }
+
 
     for (Interpolator* i : interpolators)
         if (i->getEid() != my_entity)
