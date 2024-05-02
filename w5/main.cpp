@@ -36,7 +36,7 @@ public:
         duration = 10000;
     }
 
-    void updateInterpolation(float tX, float tY, float tOri, float d)
+    void updateInterpolation(float tX, float tY, float tOri, enet_uint32 timeStamp)
     {
         initialX = ent->x;
         initialY = ent->y;
@@ -46,25 +46,33 @@ public:
         targetY = tY;
         targetOri = tOri;
 
-        duration = d;
+        duration = timeStamp - lastTimeStamp;
+        lastTimeStamp = timeStamp;
     }
 
-    void interpolate(float dt)
+    void interpolate()
     {
-        ent->x += (targetX - initialX) * dt / duration;
-        ent->y += (targetY - initialY) * dt / duration;
-        ent->ori += (targetOri - initialOri) * dt / duration;
+        enet_uint32 currentTimeStamp = enet_time_get();
 
+        ent->x = initialX + (targetX - initialX) * static_cast<float>(currentTimeStamp - lastTimeStamp) / duration;
+        ent->y = initialY + (targetY - initialY) * static_cast<float>(currentTimeStamp - lastTimeStamp) / duration;
+        ent->ori = initialOri + (targetOri - initialOri) * static_cast<float>(currentTimeStamp - lastTimeStamp) / duration;
+
+        //ent->x = targetX;
+        //ent->y = targetY;
+        //ent->ori = targetOri;
     }
 
     uint16_t getEid()
     {
         return ent->eid;
     }
-   
-private:
+
     Entity* ent;
+
+private:
     float duration;
+    enet_uint32 lastTimeStamp;
     float initialX, initialY, initialOri;
     float targetX, targetY, targetOri;
 
@@ -87,17 +95,29 @@ void on_set_controlled_entity(ENetPacket *packet)
   deserialize_set_controlled_entity(packet, my_entity);
 }
 
-void on_snapshot(ENetPacket *packet)
+void on_snapshot(ENetPacket* packet)
 {
-  uint16_t eid = invalid_entity;
-  float x = 0.f; float y = 0.f; float ori = 0.f;
-  deserialize_snapshot(packet, eid, x, y, ori);
+    uint16_t eid = invalid_entity;
+    float x = 0.f; float y = 0.f; float ori = 0.f; enet_uint32 timeStamp = 0;
 
-  for (Interpolator* i : interpolators)
-      if (i->getEid() == eid)
-      {
-          i->updateInterpolation(x, y, ori, snapshotDelay);
-      }
+    deserialize_snapshot(packet, eid, x, y, ori, timeStamp);
+
+    for (Interpolator* i : interpolators)
+    {
+        if (i->getEid() == eid)
+        {
+            if (i->getEid() != my_entity)
+            {
+                i->updateInterpolation(x, y, ori, enet_time_get());
+            }
+            else
+            {
+                i->ent->x = x;
+                i->ent->y = y;
+                i->ent->ori = ori;
+            }
+        }
+    }
 }
 
 int main(int argc, const char **argv)
@@ -213,7 +233,8 @@ int main(int argc, const char **argv)
     }
 
     for (Interpolator* i : interpolators)
-        i->interpolate(dt);
+        if (i->getEid() != my_entity)
+            i->interpolate();
 
     BeginDrawing();
       ClearBackground(GRAY);
