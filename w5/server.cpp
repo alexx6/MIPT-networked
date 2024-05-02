@@ -27,7 +27,7 @@ void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
                    0x44000000 * (rand() % 5);
   float x = (rand() % 4) * 5.f;
   float y = (rand() % 4) * 5.f;
-  Entity ent = {color, x, y, 0.f, (rand() / RAND_MAX) * 3.141592654f, 0.f, 0.f, newEid};
+  Entity ent = {color, x, y, 0.f, (rand() / RAND_MAX) * 3.141592654f, 0.f, 0.f, newEid, enet_time_get()};
   entities.push_back(ent);
 
   controlledMap[newEid] = peer;

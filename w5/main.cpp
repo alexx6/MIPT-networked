@@ -15,8 +15,69 @@ class Interpolator;
 std::vector<Entity*> entities;
 std::vector<Interpolator*> interpolators;
 static uint16_t my_entity = invalid_entity;
-float timeSinceSnapshot = 0;
-float snapshotDelay = 1000;
+
+//DT in milliseconds
+constexpr enet_uint32 fixedDt = 100;
+enet_uint32 lastUpdate = enet_time_get();
+
+struct TickData
+{
+    float x = 0.f;
+    float y = 0.f;
+    float speed = 0.f;
+    float ori = 0.f;
+    float thr = 0.f;
+    float steer = 0.f;
+};
+
+class History
+{
+public:
+    History()
+    {
+
+    }
+
+    void add(TickData td) 
+    {
+        history[cur] = td;
+        cur = (cur + 1) % 1000;
+    }
+
+    TickData get(size_t stepsInThePast)
+    {
+        size_t neededTick = cur - stepsInThePast;
+
+        if (neededTick < 0)
+            neededTick += 1000;
+
+        if (neededTick < 0 || neededTick >= 1000)
+        {
+            return history[(cur + 999) % 1000];
+        }
+        
+        return history[neededTick];
+    }
+
+    void set(size_t stepsInThePast, TickData td)
+    {
+        size_t neededTick = cur - stepsInThePast;
+
+        if (neededTick < 0)
+            neededTick += 1000;
+
+        if (neededTick < 0 || neededTick >= 1000)
+        {
+            return;
+        }
+
+        history[neededTick] = td;
+    }
+
+private:
+    size_t cur = 0;
+    TickData history[1000];
+};
 
 class Interpolator
 {
@@ -115,6 +176,7 @@ void on_snapshot(ENetPacket* packet)
                 i->ent->x = x;
                 i->ent->y = y;
                 i->ent->ori = ori;
+                i->ent->timeStamp = timeStamp;
             }
         }
     }
@@ -171,10 +233,11 @@ int main(int argc, const char **argv)
 
   bool connected = false;
 
+  History history;
+
   while (!WindowShouldClose())
   {
     float dt = GetFrameTime();
-    timeSinceSnapshot += dt;
     ENetEvent event;
     while (enet_host_service(client, &event, 0) > 0)
     {
@@ -196,11 +259,6 @@ int main(int argc, const char **argv)
           break;
         case E_SERVER_TO_CLIENT_SNAPSHOT:
           on_snapshot(event.packet);
-
-          if (timeSinceSnapshot > 0)
-            snapshotDelay = timeSinceSnapshot;
-
-          timeSinceSnapshot = 0;
           break;
         };
         break;
@@ -208,8 +266,10 @@ int main(int argc, const char **argv)
         break;
       };
     }
-    if (my_entity != invalid_entity)
+    if (my_entity != invalid_entity && enet_time_get() - lastUpdate >= fixedDt)
     {
+        lastUpdate = enet_time_get();
+
       bool left = IsKeyDown(KEY_LEFT);
       bool right = IsKeyDown(KEY_RIGHT);
       bool up = IsKeyDown(KEY_UP);
@@ -228,7 +288,54 @@ int main(int argc, const char **argv)
 
           e->thr = thr;
           e->steer = steer;
+
+          history.add({e->x, e->y, e->speed, e->ori, e->thr, e->steer});
+          
           simulate_entity(*e, dt);
+        }
+    }
+
+    //Perenakat
+    for (Entity* e : entities)
+    {
+        if (e->eid == my_entity)
+        {
+            enet_uint32 tdt = enet_time_get() - e->timeStamp;
+            if (tdt >= fixedDt)
+            {
+                size_t ticks;
+
+                if (tdt / fixedDt == (tdt - 1) / fixedDt)
+                    ticks = tdt / fixedDt + 1;
+                else
+                    ticks = tdt / fixedDt;
+
+                TickData td = history.get(ticks);
+
+                e->x = td.x;
+                e->y = td.y;
+                e->ori = td.ori;
+                e->speed = td.speed;
+
+                for (size_t t = ticks - 1; t > 0; --t)
+                {
+                    simulate_entity(*e, fixedDt * 0.001);
+
+                    TickData controls = history.get(t);
+
+                    e->thr = controls.thr;
+                    e->steer = controls.steer;
+
+                    controls.x = e->x;
+                    controls.y = e->y;
+                    controls.ori = e->ori;
+                    controls.speed = e->speed;
+
+                    history.set(t, controls);
+                }
+
+                e->timeStamp = enet_time_get();
+            }
         }
     }
 
@@ -247,6 +354,7 @@ int main(int argc, const char **argv)
 
       EndMode2D();
     EndDrawing();
+
   }
 
   CloseWindow();
