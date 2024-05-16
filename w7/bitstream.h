@@ -74,7 +74,7 @@ public:
 		//For remaining bytes we shift result and add each byte to it
 		for (int s = 1; s < 1 << type; ++s)
 		{
-			val << 8;
+			val <<= 8;
 			read<uint8_t>(b);
 			val += b;
 		}
