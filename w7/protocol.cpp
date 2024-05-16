@@ -1,5 +1,6 @@
 #include "protocol.h"
 #include "quantisation.h"
+#include "bitstream.h"
 #include <cstring> // memcpy
 #include <iostream>
 
@@ -58,23 +59,20 @@ typedef PackedFloat<uint16_t, 10> PositionYQuantized;
 
 void send_snapshot(ENetPeer *peer, uint16_t eid, float x, float y, float ori)
 {
-  ENetPacket *packet = enet_packet_create(nullptr, sizeof(uint8_t) + sizeof(uint16_t) +
-                                                   sizeof(uint16_t) +
-                                                   sizeof(uint16_t) +
-                                                   sizeof(uint8_t),
-                                                   ENET_PACKET_FLAG_UNSEQUENCED);
-  uint8_t *ptr = packet->data;
-  *ptr = E_SERVER_TO_CLIENT_SNAPSHOT; ptr += sizeof(uint8_t);
-  memcpy(ptr, &eid, sizeof(uint16_t)); ptr += sizeof(uint16_t);
-  PositionXQuantized xPacked(x, -16, 16);
-  PositionYQuantized yPacked(y, -8, 8);
-  uint8_t oriPacked = pack_float<uint8_t>(ori, -PI, PI, 8);
-  //printf("xPacked/unpacked %d %f\n", xPacked, x);
-  memcpy(ptr, &xPacked.packedVal, sizeof(uint16_t)); ptr += sizeof(uint16_t);
-  memcpy(ptr, &yPacked.packedVal, sizeof(uint16_t)); ptr += sizeof(uint16_t);
-  memcpy(ptr, &oriPacked, sizeof(uint8_t)); ptr += sizeof(uint8_t);
+    Bitstream pdata;
+    pdata.write(E_SERVER_TO_CLIENT_SNAPSHOT);
+    pdata.write(eid);
 
-  enet_peer_send(peer, 1, packet);
+    //Testing PackedVec2 on position
+    PackedVec2<uint32_t, 17, 15> packedPos({ x, y }, { -16, -8 }, { 16, 8 });
+    pdata.write(packedPos.packedVal);
+
+    uint8_t oriPacked = pack_float<uint8_t>(ori, -PI, PI, 8);
+    pdata.write(oriPacked);
+
+    ENetPacket *packet = enet_packet_create(pdata.get(), pdata.size(), ENET_PACKET_FLAG_UNSEQUENCED);
+
+    enet_peer_send(peer, 1, packet);
 }
 
 MessageType get_packet_type(ENetPacket *packet)
@@ -113,15 +111,18 @@ void deserialize_entity_input(ENetPacket *packet, uint16_t &eid, float &thr, flo
 
 void deserialize_snapshot(ENetPacket *packet, uint16_t &eid, float &x, float &y, float &ori)
 {
-  uint8_t *ptr = packet->data; ptr += sizeof(uint8_t);
-  eid = *(uint16_t*)(ptr); ptr += sizeof(uint16_t);
-  uint16_t xPacked = *(uint16_t*)(ptr); ptr += sizeof(uint16_t);
-  uint16_t yPacked = *(uint16_t*)(ptr); ptr += sizeof(uint16_t);
-  PositionXQuantized xPackedVal(xPacked);
-  PositionYQuantized yPackedVal(yPacked);
-  uint8_t oriPacked = *(uint8_t*)(ptr); ptr += sizeof(uint8_t);
-  x = xPackedVal.unpack(-16, 16);
-  y = yPackedVal.unpack(-8, 8);
-  ori = unpack_float<uint8_t>(oriPacked, -PI, PI, 8);
+    Bitstream pdata(packet->data + 1, packet->dataLength - 1);
+    pdata.read(eid);
+
+    uint32_t packedData;
+    pdata.read(packedData);
+    PackedVec2<uint32_t, 17, 15> packedPos(packedData);
+    Vec2 pos = packedPos.unpack({ -16, -8 }, { 16, 8 });
+    x = pos.x;
+    y = pos.y;
+
+    uint8_t oriPacked;
+    pdata.read(oriPacked);
+    ori = unpack_float<uint8_t>(oriPacked, -PI, PI, 8);
 }
 

@@ -55,7 +55,7 @@ public:
 		{
 			//Adding each byte to b and then writing it. The first written byte includes type in two highest bits
 			b += val >> 8 * s & 0xff;
-			write<uint8_t>(b)
+			write<uint8_t>(b);
 			b = 0;
 		}
 	}
@@ -72,7 +72,7 @@ public:
 		//adding first byte to result (without type)
 		val += b & 0b00111111;
 		//For remaining bytes we shift result and add each byte to it
-		for (s = 1; s < 1 << type; ++s)
+		for (int s = 1; s < 1 << type; ++s)
 		{
 			val << 8;
 			read<uint8_t>(b);

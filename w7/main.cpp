@@ -23,7 +23,7 @@ void on_new_entity_packet(ENetPacket *packet)
       return; // don't need to do anything, we already have entity
   entities.push_back(newEntity);
 }
-
+ 
 void on_set_controlled_entity(ENetPacket *packet)
 {
   deserialize_set_controlled_entity(packet, my_entity);

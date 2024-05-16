@@ -1,6 +1,14 @@
 #pragma once
 #include "mathUtils.h"
 #include <limits>
+#include <iostream>
+
+struct Vec2
+{
+	float x;
+	float y;
+	Vec2(float x_i, float y_i) : x(x_i), y(y_i) {};
+};
 
 template<typename T>
 T pack_float(float v, float lo, float hi, int num_bits)
@@ -29,4 +37,26 @@ struct PackedFloat
 };
 
 typedef PackedFloat<uint8_t, 4> float4bitsQuantized;
+
+template<typename T, int num_bits_h, int num_bits_l>
+struct PackedVec2
+{
+	T packedVal;
+
+	PackedVec2(Vec2 v, Vec2 lo, Vec2 hi) { pack(v, lo, hi); };
+	PackedVec2(T pv) : packedVal(pv) {};
+
+	void pack(Vec2 v, Vec2 lo, Vec2 hi) 
+	{ 
+		packedVal = pack_float<T>(v.x, lo.x, hi.x, num_bits_h);
+		packedVal <<= num_bits_l;
+		packedVal += pack_float<T>(v.y, lo.y, hi.y, num_bits_l);
+	}
+
+	Vec2 unpack(Vec2 lo, Vec2 hi)
+	{
+		return { unpack_float<T>(packedVal >> num_bits_l, lo.x, hi.x, num_bits_h),
+				 unpack_float<T>(packedVal & (1 << num_bits_l) - 1, lo.y, hi.y, num_bits_l) };
+	}
+};
 
